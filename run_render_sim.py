@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 import cutil
-import dist_computing
+import dist_computing.run_jobs as dist_computing
 import math
 import numpy as np
 import os
@@ -22,9 +22,9 @@ def main():
     args, uk = parser.parse_known_args()
 
     if args.local:
-        dist_computing.local_jobs(os.path.abspath(__file__))
+        dist_computing.local_jobs(init)
     else:
-        dist_computing.manage_jobs(args.hosts_file, os.path.abspath(__file__))
+        dist_computing.manage_jobs(args.hosts_file, init)
         
 # The following details how to set each of the global variables
 # to render previously simulated fluids:
