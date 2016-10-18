@@ -1,0 +1,142 @@
+#!/usr/bin/env python
+
+import argparse
+import os
+import socket
+import sys
+import time
+import Tkinter as tk
+
+def make_closure(func, args1):
+    def ret(*args2):
+        args = list(args1) + list(args2)
+        return func(*args)
+    return ret
+
+# http://tkinter.unpythonic.net/wiki/VerticalScrolledFrame
+class VerticalScrolledFrame(tk.Frame):
+    """A pure Tkinter scrollable frame that actually works!
+    * Use the 'interior' attribute to place widgets inside the scrollable frame
+    * Construct and pack/place/grid normally
+    * This frame only allows vertical scrolling
+
+    """
+    def __init__(self, parent, *args, **kw):
+        tk.Frame.__init__(self, parent, *args, **kw)            
+
+        # create a canvas object and a vertical scrollbar for scrolling it
+        vscrollbar = tk.Scrollbar(self, orient=tk.VERTICAL)
+        vscrollbar.pack(fill=tk.Y, side=tk.RIGHT, expand=tk.FALSE)
+        canvas = tk.Canvas(self, bd=0, highlightthickness=0,
+                        yscrollcommand=vscrollbar.set, height=600)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=tk.TRUE)
+        vscrollbar.config(command=canvas.yview)
+
+        # reset the view
+        canvas.xview_moveto(0)
+        canvas.yview_moveto(0)
+
+        # create a frame inside the canvas which will be scrolled with it
+        self.interior = interior = tk.Frame(canvas)
+        interior_id = canvas.create_window(0, 0, window=interior,
+                                           anchor=tk.NW)
+
+        # track changes to the canvas and frame width and sync them,
+        # also updating the scrollbar
+        def _configure_interior(event):
+            # update the scrollbars to match the size of the inner frame
+            size = (interior.winfo_reqwidth(), interior.winfo_reqheight())
+            canvas.config(scrollregion="0 0 %s %s" % size)
+            if interior.winfo_reqwidth() != canvas.winfo_width():
+                # update the canvas's width to fit the inner frame
+                canvas.config(width=interior.winfo_reqwidth())
+        interior.bind('<Configure>', _configure_interior)
+
+        def _configure_canvas(event):
+            if interior.winfo_reqwidth() != canvas.winfo_width():
+                # update the inner frame's width to fill the canvas
+                canvas.itemconfigure(interior_id, width=canvas.winfo_width())
+        canvas.bind('<Configure>', _configure_canvas)
+
+
+def find_active_process():
+	# First find the active processes.
+	homes = os.path.dirname(os.path.expanduser('~'))
+	port = None
+	fp = None
+	for proc_manager in [os.path.join(homes, x, '.proc_manager', 'port') for x in os.listdir(homes) if os.path.exists(os.path.join(homes, x, '.proc_manager', 'port'))]:
+		lines = open(proc_manager, 'r').readlines()
+		if len(lines) <= 0:
+			continue
+		line = lines[-1].split()
+		if len(line) < 2:
+			continue
+		if not os.path.exists(line[1]):
+			continue
+		port = int(line[0])
+		fp = line[1]
+		break
+
+	return port, fp
+
+def  run_gui(port, fp, sock):
+    
+	root = tk.Tk()
+	frame = tk.Frame(root)
+	frame.pack()
+
+	menu_frame = VerticalScrolledFrame(frame, padx=5, pady=5, height=1000)
+	menu_frame.grid(row=0, column=0, sticky=tk.N+tk.S+tk.E+tk.W)
+	status = tk.Label(menu_frame.interior, text="Status", font=("Times", 30, "bold"))
+	status.pack()
+	buttons = [("Resume", make_closure(sock.sendto, (str(time.time()) + ' resume', ('127.0.0.1', port)))),
+			   ("Pause for 30m", make_closure(sock.sendto, (str(time.time()) + ' pause 1800', ('127.0.0.1', port)))),
+			   ("Pause for 4hrs", make_closure(sock.sendto, (str(time.time()) + ' pause 14400', ('127.0.0.1', port)))),
+			   ("Pause for 24hrs", make_closure(sock.sendto, (str(time.time()) + ' pause 86400', ('127.0.0.1', port)))),
+			   ("Kill", make_closure(sock.sendto, (str(time.time()) + ' kill', ('127.0.0.1', port))))]
+	for button in buttons:
+	    b = tk.Button(menu_frame.interior, text=button[0], command=button[1], font=("Times", 20, "normal"))
+	    b.pack()
+
+	def status_watcher():
+		s = open(fp, 'r').read()
+		status.config(text=s)
+		time.sleep(0.1)
+		root.after(100, status_watcher)
+
+	status_watcher()
+	root.mainloop()
+
+
+def main():
+	parser = argparse.ArgumentParser(description='Send commands to the managed processes. Call with no arguments to start the gui.')
+	parser.add_argument('-p', '--pause', action="store", dest="min", type=float, help='Pause the managed processes for the given number of minutes. Set to 0 to pause indefinitely.')
+	parser.add_argument('-r', '--resume', action="store_true", dest="resume", help='Resume the managed processes.')
+	parser.add_argument('-k', '--kill', action="store_true", dest="kill", help='Kill the managed processes.')
+	parser.add_argument('-c', '--cancel', action="store_true", dest="cancel", help='The same as kill, but the managed procceses won\'t through an exception on quiting.')
+	parser.add_argument('-s', '--status', action="store_true", dest="status", help='Print the status of the processes.')
+	args = parser.parse_args()
+
+	port, fp = find_active_process()
+	if port is None or fp is None:
+		print("No active process found")
+		return
+
+	print("Found active process on port %d with log file %s." % (port, fp))
+	sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+	if args.min is not None:
+		sock.sendto(str(time.time()) + ' pause ' + str(args.min*60.0), ('127.0.0.1', port))
+	elif args.resume:
+		sock.sendto(str(time.time()) + ' resume', ('127.0.0.1', port))
+	elif args.kill:
+		sock.sendto(str(time.time()) + ' kill', ('127.0.0.1', port))
+	elif args.cancel:
+		sock.sendto(str(time.time()) + ' cancel', ('127.0.0.1', port))
+	elif args.status:
+	    print("Status: " + open(fp, 'r').read())
+	else:
+		run_gui(port, fp, sock)
+
+
+if __name__ == '__main__':
+    main()

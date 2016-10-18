@@ -1,0 +1,285 @@
+#!/usr/bin/env python
+
+import argparse
+import atexit
+import errno
+import os
+import pwd
+import signal
+import socket
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+
+
+class ProcessManager:
+    PAUSE = 1
+    RESUME = 2
+    KILL = 3
+    CANCEL = 4
+
+    def __init__(self, command, wait_time=600.0, monitor_user=True, env=os.environ.copy(), nice=None):
+        self.config_path = os.path.join(os.path.expanduser('~'), '.proc_manager')
+        if not os.path.exists(self.config_path):
+            os.mkdir(self.config_path)
+
+        self.thread = None
+        self.sock = None
+        self.log = None
+        self.proc = None
+        self.monitor_user = monitor_user
+        atexit.register(self.cleanup)
+
+        if nice is not None:
+            command = ['nice', '-n', '19'] + command
+
+        if self.monitor_user:
+            try:
+                print("Checking sudo permissions...")
+                open('/etc/test', 'w')
+                print("You already have sudo permissions.")
+            except IOError as e:
+                if (e[0] == 13):
+                   print("In order to properly monitor the x-session for user activity, we need root permissions.")
+                   print("Please grant root permissions now.")
+                   print(subprocess.check_output(['sudo', 'echo', '"Granted!"']))
+                else:
+                    raise
+
+        self.command = command
+        print("Running the following command:")
+        print(' '.join(command))
+        def dont_ingore_signals():
+            ss = os.stat(os.getcwd())
+            os.setgid(ss.st_gid)
+            os.setuid(ss.st_uid)
+            signal.signal(signal.SIGTSTP, signal.SIG_DFL)
+            signal.signal(signal.SIGCONT, signal.SIG_DFL)
+        self.proc = subprocess.Popen(command, env=env, preexec_fn=dont_ingore_signals)
+        self.paused = -1
+        self.wait_time = wait_time
+
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server_address = ('127.0.0.1', 0)
+        self.sock.bind(server_address)
+        self.sock.setblocking(0)
+
+        self.log = tempfile.NamedTemporaryFile()
+        subprocess.call(['chmod', 'ugo+r', self.log.name])
+        port = self.sock.getsockname()[1]
+        fp = open(os.path.join(self.config_path, 'port'), 'a')
+        fp.write(str(port) + ' ' + self.log.name + '\n')
+        fp.flush()
+        fp.close()
+
+        self.last_t = 0.0
+
+        success = self.__monitor_user__()
+
+        if success and self.proc.wait() != 0:
+            raise Exception("Command '%s' had non-zero return value." % ' '.join(self.command))
+        
+    def __monitor_user__(self):
+        cmds = []
+        time.sleep(0.1)
+        while self.proc.poll() is None:
+            now = time.time()
+            cmds += self.__pidle()
+            if self.monitor_user:
+                cmds += self.__xidle()
+            cmds = sorted(cmds, key=lambda x : x[0])
+            while len(cmds) > 0 and now >= cmds[0][0]:
+                cmd, cmds = cmds[0], cmds[1:]
+                if cmd[1] == self.PAUSE:
+                    if cmd[2] <= 0:
+                        rt = float('inf')
+                    else:
+                        rt = time.time() + cmd[2]
+                    if rt > self.paused:
+                        self.paused = rt
+                        self.pause()                    
+                elif cmd[1] == self.RESUME:
+                    self.resume()
+                    self.paused = -1
+                    print("Resuming...")
+                elif cmd[1] == self.KILL:
+                    print("PROCESS KILLED BY USER MONITOR")
+                    raise Exception("Process killed by user monitor.")
+                elif cmd[1] == self.CANCEL:
+                    print("Process canceled by user monitor.")
+                    self.kill()
+                    return False
+            if self.paused >= 0 and self.paused < time.time():
+                self.resume()
+                self.paused = -1
+                print("Resuming...")
+                time.sleep(0.5)
+            if self.paused >= 0:
+                if self.paused == float('inf'):
+                    msg = 'Paused. Waiting for resume signal.  '
+                else:
+                    dur = self.paused - time.time()
+                    m, s = divmod(dur, 60)
+                    s = dur - m*60.0
+                    h, m = divmod(m, 60)
+                    msg = 'Paused. Resuming in %3d:%02d:%05.2f.  ' % (h, m, s)
+                for i in range(len(msg)):
+                    sys.stdout.write('\b')
+                sys.stdout.write(msg)
+                sys.stdout.flush()
+                os.system("echo '%s' > %s" % (msg, self.log.name))
+            else:
+                msg = 'Running'
+                os.system("echo '%s' > %s" % (msg, self.log.name))
+            time.sleep(0.1)
+        return True
+
+        
+    def __xidle(self):
+        lines = subprocess.check_output(['w']).split('\n')
+        while not lines[0].startswith('USER'):
+            lines = lines[1:]
+        line = lines[0].split()
+        iuser = line.index('USER')
+        ifrom = line.index('FROM')
+        iidle = line.index('IDLE')
+        lines = lines[1:]
+        to_check = []
+        for session in [x.split() for x in lines]:
+            if len(session) < iuser or len(session) < ifrom or len(session) < iidle:
+                continue
+            if session[iidle].lower() == "?xdm?":
+                to_check.append((session[iuser], session[ifrom]))
+
+        __min = float('inf')
+        for user, display in to_check:
+            env = os.environ.copy()
+            env['DISPLAY'] = display
+            env['XAUTHORITY'] = os.path.join(os.path.dirname(os.path.abspath(os.path.expanduser('~'))), user, '.Xauthority')
+            t = float(subprocess.check_output(['sudo', '-u', user, 'xprintidle'], env=env))/1000.0
+            __min = min(t, __min)
+            
+        ret = []
+        if __min < float('inf'):
+            if __min < self.last_t:
+                ret = [(time.time() - __min, self.PAUSE, self.wait_time)]
+            self.last_t = __min
+        return ret  
+
+    def __pidle(self):
+        ret = []
+        try:
+            data, address = self.sock.recvfrom(4096)
+            for cmd in [x.split() for x in data.split('\n')]:
+                t = float(cmd[0])
+                if cmd[1].lower() == 'pause':
+                    ret.append((t, self.PAUSE, float(cmd[2])))
+                elif cmd[1].lower() == 'resume':
+                    ret.append((t, self.RESUME))
+                elif cmd[1].lower() == 'kill':
+                    ret.append((t, self.KILL))
+                elif cmd[1].lower() == 'cancel':
+                    ret.append((t, self.CANCEL))
+        except socket.error:
+            pass
+        return ret
+
+    def __get_child_pids__(self, pid):
+        try:
+            ret = [int(x) for x in subprocess.check_output(['pgrep', '-P', str(pid)]).split()]
+        except:
+            ret = []
+        if len(ret) > 0:
+            for pp in ret:
+                ret += self.__get_child_pids__(pp)
+        return ret
+
+    def pause(self):
+        self.proc.send_signal(signal.SIGTSTP)
+        for pid in self.__get_child_pids__(self.proc.pid):
+            os.kill(pid, signal.SIGTSTP)
+        
+    def resume(self):
+        self.proc.send_signal(signal.SIGCONT)
+        for pid in self.__get_child_pids__(self.proc.pid):
+            os.kill(pid, signal.SIGCONT)
+
+    def terminate(self):
+        pids = self.__get_child_pids__(self.proc.pid)
+        self.proc.send_signal(signal.SIGINT)
+        for pid in pids:
+            try:
+                os.kill(pid, signal.SIGINT)
+            except:
+                pass
+
+    def kill(self):
+        pids = self.__get_child_pids__(self.proc.pid)
+        self.proc.send_signal(signal.SIGKILL)
+        for pid in pids:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except:
+                pass
+        
+    def __del__(self):
+        self.cleanup()
+
+    def cleanup(self):
+        if self.sock is not None:
+            self.sock.close()
+            self.sock = None
+        if self.log is not None:
+            self.log.close()
+            self.log = None
+
+        if self.proc is not None and self.proc.poll() is None:
+            self.terminate()
+            time.sleep(0.1)
+            term_start = time.time()
+            while self.proc.poll() is None:
+                time.sleep(0.01)
+                if time.time() - term_start > 5.0:
+                    print("Killing '%s'." % str(self.command))
+                    self.kill()
+                    break
+        
+        
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--input_dir', action='store', type=str, dest='input_dir')
+    parser.add_argument('--output_dir', action='store', type=str, dest='output_dir')
+    parser.add_argument('--dep_dirs', nargs='+', dest="dep_dirs", type=str)
+    parser.add_argument('--dep_env_vars', nargs='+', dest="dep_env_vars", type=str)
+    parser.add_argument('--cmd', nargs='+', dest="cmd", type=str)
+    parser.add_argument('--args', action="store", dest="args", type=eval)
+    parser.add_argument('--background', action="store_true", dest="background")
+    parser.add_argument('--min_idle_time', action="store", dest="min_idle_time", type=float, default=600.0)
+    parser.add_argument('--nice', action="store", dest="nice", type=int, default=None)
+    args = parser.parse_args()
+
+    cmd = args.cmd
+    if args.input_dir is not None:
+        cmd.append(args.input_dir)
+    if args.output_dir is not None:
+        cmd.append(args.output_dir)
+
+    env = os.environ.copy()
+    if args.dep_dirs is not None and args.dep_env_vars is not None and len(args.dep_dirs) > 0 and len(args.dep_env_vars) > 0:
+        for v in args.dep_env_vars:
+            cv = ""
+            if v in env:
+                cv = env[v]
+            env[v] = cv + ":" + ":".join(args.dep_dirs)
+
+    if args.args is not None:
+        cmd += args.args
+    ProcessManager(cmd, wait_time=args.min_idle_time, monitor_user=args.background, env=env, nice=args.nice)
+  
+if __name__ == '__main__':
+    main()

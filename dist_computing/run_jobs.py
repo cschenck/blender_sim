@@ -1,0 +1,364 @@
+#!/usr/bin/env python
+
+import argparse
+import cutil
+import fabric.state
+import fabric.api
+import fabric.network
+import fabric.operations
+import fabric.context_managers
+import imp
+import os
+import Queue
+import paramiko
+import random
+import sys
+import tempfile
+import threading
+import time
+import traceback
+
+
+# A job is a dictionary with the following entries:
+# -code_dir [required]: Directory on local machine where the source code/binaries are located.
+# -exec [required]: Relative filepath to code_dir of the python script to execute.
+# -args [optional]: List of command line arguments to pass to the python script, after the input and output dirs.
+# -dep_dirs [optional]: List of directories that contain dependencies for this job.
+# -dep_env_vars [optional]: List of environment variables that will be altered to include dep_dirs.
+# -input_dir [optional]: Directory containing the input files for this job. If set, will be passed as first argument to exec.
+# -output_dir [optional]: Directory where exec's output should be stored on this machine. If set, will be passed as second argument to exec (or first if input_dir is not set).
+
+def manage_host(host, port, host_args):
+    jobs_manager = None
+    working_dir = None
+    try:
+        cutil.makedirs(os.path.join(os.path.expanduser('~'), '.run_jobs'))
+        paramiko.util.log_to_file(os.path.join(os.path.expanduser('~'), '.run_jobs', host + "_" + str(port) + ".log"))
+        jobs_manager = cutil.SocketMessager(host.replace(":", "_"), "127.0.0.1", port)
+        print("Setting up host %s..." % host)
+        fabric.state.env.host_string = host
+        if '--tempdir' in host_args:
+            dd = host_args[host_args.index('--tempdir') + 1]
+            fabric.state.env.cwd = dd
+        fabric.state.env.cwd = fabric.api.run("pwd")
+        fabric.state.env.keepalive = 60.0
+        fabric.state.env.shell = '/bin/bash -i -c'
+        fabric.state.env.timeout = 30.0
+        fabric.state.env.connection_attempts = 5
+
+        fabric.api.run("rm %s -rf" % os.path.join(fabric.state.env.cwd, '.remote_job_' + host + "_*"), warn_only=True)
+        fabric.operations.put(local_path=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'user_manager.py'), remote_path=fabric.state.env.cwd)
+
+        working_dir = os.path.join(fabric.state.env.cwd, '.remote_job_' + host + "_" + str(port))
+        fabric.api.run("rm %s -rf" % working_dir, warn_only=True)
+        fabric.api.run("mkdir %s" % working_dir)
+        fabric.state.env.cwd = working_dir
+
+        fabric.operations.put(local_path=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'background_process_manager.py'), remote_path=working_dir)
+        fabric.operations.put(local_path=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'user_manager.py'), remote_path=working_dir)
+
+        remote_dep_dirs = {}
+        fabric.api.run("mkdir %s" % os.path.join(working_dir, 'deps'))
+        cached_dirs = {'code' : (None, None), 'input' : (None, None), 'output' : (None, None)}
+
+        
+        while True:
+            jobs_manager.sendMessage("done", "jobs_manager")
+            msg, _ = jobs_manager.getNextMessage()
+            if msg == "exit":
+                break
+            if msg == "cancel":
+                continue
+            job = eval(msg)
+            print("Starting new job %s" % job)
+            start = time.time()
+
+            # First copy dependencies.
+            if 'dep_dirs' in job:
+                for dep_dir in job['dep_dirs']:
+                    if dep_dir not in remote_dep_dirs:
+                        fabric.operations.put(local_path=dep_dir, remote_path=os.path.join(working_dir, 'deps'), mirror_local_mode=True)
+                        remote_dep_dirs[dep_dir] = os.path.join(working_dir, 'deps', cutil.file_basename(dep_dir))
+
+            # Now copy code, input, and output dirs.
+            for k in cached_dirs.keys():
+                arg = k + '_dir'
+                local, remote = cached_dirs[k]
+                if arg in job and (job[arg] != local or k == 'input'): # BUG: Always copy input.
+                    local = job[arg]
+                    if remote is not None:
+                        fabric.api.run("rm %s -rf" % remote, warn_only=True)
+                    remote = os.path.join(working_dir, ('output' if k == 'output' else cutil.file_basename(local)))
+                    if k == 'output':
+                        fabric.api.run("mkdir %s" % remote)
+                    else:
+                        fabric.operations.put(local_path=local, remote_path=working_dir, mirror_local_mode=True)
+                    cached_dirs[k] = (local, remote)
+
+            # Set up the command line args.
+            cmd = ["python", "background_process_manager.py"]
+            cmd += ['--cmd', 'python', os.path.join(cached_dirs['code'][1], job['exec'])]
+            if 'input_dir' in job:
+                cmd += ['--input_dir', cached_dirs['input'][1]]
+            if 'output_dir' in job:
+                cmd += ['--output_dir', cached_dirs['output'][1]]
+            if 'dep_dirs' in job:
+                cmd += ['--dep_dirs', ' '.join([remote_dep_dirs[x] for x in job['dep_dirs']] + [os.path.join(working_dir, 'deps')])]
+            if 'dep_env_vars' in job:
+                cmd += ['--dep_env_vars', ' '.join(job['dep_env_vars'])]
+            cmd += host_args
+            if 'args' in job:
+                cmd += ['--args', "\"" + str(job['args']) + "\""]
+
+            # Set up a background thread to monitor for cancel commands.
+            st = {}
+            st['status'] = 'running'
+            def cancel_monitor():
+                while st['status'] == 'running':
+                    msgs = jobs_manager.getMessages()
+                    for (msg, host) in msgs:
+                        if msg == 'cancel':
+                            st['status'] = 'cancel'
+                            fabric.api.run('python %s --cancel' % os.path.join(working_dir, 'user_manager.py'))
+                            return
+
+            bkt = threading.Thread()
+
+            # RUN!!!
+            if '--background' in host_args:
+                fabric.api.sudo(' '.join(cmd))
+            else:
+                fabric.api.run(' '.join(cmd))
+
+            # Check if canceled
+            if st['status'] == 'cancel':
+                print("Job '%s' canceled." % str(job))
+                continue
+
+            # Now copy back any result.
+            if 'output_dir' in job:
+                cutil.makedirs(cached_dirs['output'][0])
+                fabric.operations.get(local_path=cached_dirs['output'][0], remote_path=os.path.join(cached_dirs['output'][1], '*'))
+
+            end = time.time()
+            
+            if 'output_dir' in job:
+                fp = os.path.join(cached_dirs['output'][0], 'args.txt')
+                i = 0
+                while os.path.exists(fp):
+                    fp = os.path.join(cached_dirs['output'][0], 'args.txt.%06d' % i)
+                    i += 1
+                fp = open(fp, "w")
+                fp.write(str(job))
+                fp.write("\n")
+                fp.write("processing-time=%f" % (end - start))
+                fp.flush()
+                fp.close()
+            
+            dur = end - start
+            m, s = divmod(dur, 60)
+            h, m = divmod(m, 60)
+            print("Done. Took %d:%02d:%02d." % (h, m , s))
+                
+        
+    except:
+        print(traceback.format_exc())
+        if jobs_manager is not None:
+            jobs_manager.sendMessage("crashed" + traceback.format_exc(), "jobs_manager")
+        print("\nTO RESTART, RUN THE FOLLOWING COMMAND:")
+        print("python %s %s" % (os.path.abspath(__file__), ' '.join(sys.argv[1:])))
+    finally:
+        #if working_dir is not None:
+        #    fabric.api.run("rm %s -rf" % working_dir, warn_only=True)
+        fabric.network.disconnect_all()
+        
+
+       
+def manage_jobs(hosts_file, jobs_manager_fp):
+
+    hosts = []
+    if hosts_file is not None:
+        for line in open(hosts_file, "r").readlines():
+            line = line.strip()
+            if not line.startswith("#") and len(line) > 0:
+                host = line.split(" ")
+                if host[0] not in [h[0] for h in hosts]:
+                    hosts.append((host[0], host[1:]))
+            
+    jm_user = imp.load_source(os.path.splitext(os.path.basename(jobs_manager_fp))[0], jobs_manager_fp).init()
+        
+    port = random.randint(10000, 31900)
+    print("")
+    print("SELECTED PORT %d." % port)
+    print("")
+    jobs_manager = cutil.SocketMessager("jobs_manager", "127.0.0.1", port, host=True)
+    cmds = []
+    new_host_str = "python %s --port %d --host %%s --host_manager %%s" % (os.path.abspath(__file__), port)
+    for host in hosts:
+        cmds.append((new_host_str % (host[0], ' '.join(host[1]))) + "; bash")
+    
+    
+    thread = None
+    if len(hosts) > 0:
+        labels = []
+        for cmd in cmds:
+            hh = cmd.split()
+            hh = hh[hh.index('--host')+1]
+            if '@' in hh:
+                hh = hh[(hh.index('@')+1):]
+            labels.append(hh)
+        thread = threading.Thread(target=cutil.runCommandsInTabbedTerminator, args=(cmds,labels))
+        thread.daemon = True
+        thread.start()
+
+    print("Starting hosts...")
+    print("Run the following command to start a new host:")
+    print("==============================================")
+    print(new_host_str % ('[user@host]', '[--background|--min_idle_time SEC]'))
+    print("==============================================")
+
+    try:
+        host_jobs = dict()
+        num_finished = 0
+        start = time.time()
+        while jm_user.qsize() > 0 or len(host_jobs.values()) > 0:
+            msgs = jobs_manager.getMessages()
+            for (msg, host) in msgs:
+                if msg == "done":
+                    if host in host_jobs:
+                        job = host_jobs[host]
+                        del host_jobs[host]
+                        for hh in [x for x in host_jobs if host_jobs[x] == job]:
+                            del host_jobs[hh]
+                            jobs_manager.sendMessage("cancel", hh)
+                        print("Finished " + str(job))
+                        num_finished += 1
+                        unique_jobs = []
+                        for job in host_jobs.values():
+                            if job not in unique_jobs:
+                                unique_jobs.append(job)
+                        unique_jobs = len(unique_jobs)
+                        dur = time.time() - start
+                        m, s = divmod(dur, 60)
+                        h, m = divmod(m, 60)
+                        percent = 100.0*num_finished/(num_finished + jm_user.qsize() + unique_jobs)
+                        if percent > 0.0:
+                            dur_ = dur/(percent/100.0) - dur
+                        else:
+                            dur_ = 0.0         
+                        m_, s_ = divmod(dur_, 60)
+                        h_, m_ = divmod(m_, 60)
+                        print("==============================================")
+                        print("Elapsed time=%d:%02d:%02d, Percent=%.2f%%, Estimated Time Remaining=%d:%02d:%02d" % (h, m, s, percent, h_, m_, s_))
+                        print("Run the following command to start a new host:")
+                        print(new_host_str % ('[user@host]', '[--background|--min_idle_time SEC]'))
+                        print("==============================================")
+                    
+                    if jm_user.qsize() <= 0:
+                        # Let's put this guy to work on some jobs being handled by other machines.
+                        if len(host_jobs.values()) > 0:
+                            job = eval(cutil.get_counts([str(x) for x in host_jobs.values()])[0][0])
+                            print("OVERLOADING JOB: " + str(job))
+                            host_jobs[host] = job
+                            jobs_manager.sendMessage(str(job), host)
+                        else:
+                            jobs_manager.sendMessage("exit", host)
+                    else:
+                        job = jm_user.get()
+                        host_jobs[host] = job
+                        jobs_manager.sendMessage(str(job), host)
+                elif msg.startswith("crashed"):
+                    print("ERROR: Host %s crashed with the following error:" % host)
+                    print("\t" + msg[7:].replace("\n", "\n\t"))
+                    if host in host_jobs:
+                        job = host_jobs[host]
+                        del host_jobs[host]
+                        jm_user.put(job)
+            time.sleep(0.1)
+    except:
+         jobs_manager.sendMessage("cancel", "all")
+         jobs_manager.sendMessage("exit", "all")
+         raw_input("Press enter to throw exception and quite >")
+         raise
+    
+    if thread is not None:
+        thread.join()
+    print("====================================")
+    print("Done processing all jobs.")
+    jobs_manager.sendMessage("exit", "all")
+
+
+def local_jobs(jobs_manager_fp):
+    jm_user = imp.load_source(os.path.splitext(os.path.basename(jobs_manager_fp))[0], jobs_manager_fp).init()
+    start = time.time()
+    num_finished = 0
+    while jm_user.qsize() > 0:
+        job = jm_user.get()
+        print("Starting job %s." % str(job))
+        # Set up the command line args.
+        cmd = ["python", os.path.join(os.path.dirname(os.path.abspath(__file__)), "background_process_manager.py")]
+        cmd += ['--cmd', 'python', os.path.join(job['code_dir'], job['exec'])]
+        if 'input_dir' in job:
+            cmd += ['--input_dir', job['input_dir']]
+        if 'output_dir' in job:
+            cmd += ['--output_dir', job['output_dir']]
+        if 'dep_dirs' in job:
+            cmd += ['--dep_dirs', ' '.join(job['dep_dirs'] + [os.path.dirname(x) for x in job['dep_dirs']])]
+        if 'dep_env_vars' in job:
+            cmd += ['--dep_env_vars', ' '.join(job['dep_env_vars'])]
+        if 'args' in job:
+            cmd += ['--args', "\"" + str(job['args']) + "\""]
+        os.system(' '.join(cmd))
+        num_finished += 1
+        dur = time.time() - start
+        m, s = divmod(dur, 60)
+        h, m = divmod(m, 60)
+        percent = 100.0*num_finished/(num_finished + jm_user.qsize())
+        if percent > 0.0:
+            dur_ = dur/(percent/100.0) - dur
+        else:
+            dur_ = 0.0         
+        m_, s_ = divmod(dur_, 60)
+        h_, m_ = divmod(m_, 60)
+        print("==============================================")
+        print("Elapsed time=%d:%02d:%02d, Percent=%.2f%%, Estimated Time Remaining=%d:%02d:%02d" % (h, m, s, percent, h_, m_, s_))
+        print("==============================================")
+    print("\nFINISHED\n")
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--hosts_file', action="store", dest="hosts_file", type=str)
+    parser.add_argument('--job_manager', action="store", dest="jobs_manager", type=str)
+    parser.add_argument('--host', action="store", dest="host", type=str)
+    parser.add_argument('--port', action="store", dest="port", type=int)
+    parser.add_argument('--host_manager', action="store_true", dest="host_manager", default=False)
+    parser.add_argument('--local', action="store_true", dest="local", default=False)
+    args, uk = parser.parse_known_args()
+
+    if args.local:
+        local_jobs(args.jobs_manager)
+    elif args.host_manager:
+        manage_host(args.host, args.port, uk)
+    else:
+        manage_jobs(args.hosts_file, args.jobs_manager)
+
+
+
+if __name__ == '__main__':
+    main()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
