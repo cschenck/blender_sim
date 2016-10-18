@@ -174,7 +174,7 @@ def manage_host(host, port, host_args):
         
 
        
-def manage_jobs(hosts_file, jobs_manager_fp):
+def manage_jobs(hosts_file, jobs_manager_init):
 
     hosts = []
     if hosts_file is not None:
@@ -185,7 +185,7 @@ def manage_jobs(hosts_file, jobs_manager_fp):
                 if host[0] not in [h[0] for h in hosts]:
                     hosts.append((host[0], host[1:]))
             
-    jm_user = imp.load_source(os.path.splitext(os.path.basename(jobs_manager_fp))[0], jobs_manager_fp).init()
+    jm_user = jobs_manager_init()
         
     port = random.randint(10000, 31900)
     print("")
@@ -288,8 +288,8 @@ def manage_jobs(hosts_file, jobs_manager_fp):
     jobs_manager.sendMessage("exit", "all")
 
 
-def local_jobs(jobs_manager_fp):
-    jm_user = imp.load_source(os.path.splitext(os.path.basename(jobs_manager_fp))[0], jobs_manager_fp).init()
+def local_jobs(jobs_manager_init):
+    jm_user = jobs_manager_init()
     start = time.time()
     num_finished = 0
     while jm_user.qsize() > 0:
@@ -336,11 +336,11 @@ def main():
     args, uk = parser.parse_known_args()
 
     if args.local:
-        local_jobs(args.jobs_manager)
+        local_jobs(args.hosts_file, imp.load_source(os.path.splitext(os.path.basename(args.jobs_manager))[0], args.jobs_manager).init)
     elif args.host_manager:
         manage_host(args.host, args.port, uk)
     else:
-        manage_jobs(args.hosts_file, args.jobs_manager)
+        manage_jobs(args.hosts_file, imp.load_source(os.path.splitext(os.path.basename(args.jobs_manager))[0], args.jobs_manager).init)
 
 
 
