@@ -1,0 +1,206 @@
+#!/usr/bin/env python
+
+import Queue
+import select
+import socket
+import threading
+import time
+import traceback
+
+class SocketMessager():
+    RESERVED_NAMES = ("command", "all", "exception")
+    def __init__(self, name, host_url, port, host=False):
+        if name in self.RESERVED_NAMES:
+            raise Exception("Name may not be in %s" % str(self.RESERVED_NAMES))
+        self.host = host
+        self.host_url = host_url
+        self.port = port
+        self.name = name
+        self.incoming = Queue.Queue()
+        self.outgoing = Queue.Queue()
+        self.running = True
+        
+        if self.host:
+            self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self.s.bind((host_url, port))
+            self.s.listen(5)
+            self.clients = {self.name : None}
+            func = self.__host_loop__
+        else:
+            self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            func = self.__client_loop__
+            while True:
+                try:
+                    self.s.connect((self.host_url, self.port))
+                    break
+                except socket.error:
+                    time.sleep(0.1)
+            self.outgoing.put(("command", "set name " + self.name))
+        self.thread = threading.Thread(target=func, args=())
+        self.thread.daemon = True
+        self.thread.start()
+        
+    def __del__(self):
+        print("CLEANING UP %s" % self.name)
+        self.running = False
+        self.thread.join()
+        try:
+            self.s.close()
+        except:
+            pass
+            
+    def __send_msg__(self, msg, name, sock):
+        msg = name + ":" + msg
+        sock.send(("%20d" % len(msg)) + msg)
+        #print(self.name + "|" + msg)
+        
+    def __get_msg__(self, sock):
+        try:
+            data = sock.recv(20)
+            if data is None or data == '':
+                return (None, None)
+            data = sock.recv(int(data))
+            print(self.name + "|" + data)
+            return (data[(data.index(":")+1):], data[:data.index(":")])
+        except:
+            print(traceback.format_exc())
+            return (traceback.format_exc(), "exception")
+                    
+    def __client_loop__(self):
+        while self.running:
+            empty = False
+            while not empty:
+                try:
+                    to_send = self.outgoing.get_nowait()
+                    self.__send_msg__(to_send[1], to_send[0], self.s)
+                except Queue.Empty:
+                    empty = True
+            ready, _, _ = select.select([self.s], [], [], 0.01)
+            if self.s in ready:
+                msg, sender = self.__get_msg__(self.s)
+                if msg is None:
+                    self.running = False
+                    self.s.close()
+                    print("socket_messagner: Host shut down.")
+                else:
+                    self.incoming.put((msg, sender))
+                
+    def __host_loop__(self):
+        read_list = [self.s]
+        while self.running:
+            empty = False
+            while not empty:
+                try:
+                    to_send = self.outgoing.get_nowait()
+                    msg = to_send[1]
+                    receiver = to_send[0]
+                    sender = to_send[2]
+                    if receiver not in self.clients:
+                        raise Exception("%s is not a client." % sender)
+                    self.__send_msg__(msg, sender, self.clients[receiver])
+                except Queue.Empty:
+                    empty = True
+
+            ready, _, _ = select.select(read_list, [], [], 0.01)
+            for s in ready:
+                if self.s is s:
+                    client_socket, address = self.s.accept()
+                    read_list.append(client_socket)
+                else:
+                    msg, receiver = self.__get_msg__(s)
+                    sender = None
+                    for key in self.clients:
+                        if s == self.clients[key]:
+                            sender = key
+                            
+                    if msg is None:
+                        print("Client %s disconnected." % sender)
+                        read_list.remove(s)
+                        del self.clients[sender]
+                        s.close()
+                        continue
+                    if receiver == "command":
+                        if msg.startswith("set name "):
+                            self.clients[msg[9:]] = s
+                    elif receiver == "all":
+                        for client in self.clients:
+                            if client is not self.name:
+                                self.outgoing.put((client, msg, sender))
+                        self.incoming.put((msg, sender))
+                    elif receiver == "exception":
+                        pass
+                    elif receiver == self.name:
+                        self.incoming.put((msg, sender))
+                    else:
+                        if receiver not in self.clients:
+                            raise Exception("%s is not a client." % sender)
+                        self.outgoing.put((receiver, msg, sender))
+                        
+    def sendMessage(self, msg, receiver):
+        self.outgoing.put((receiver, msg, self.name))
+        
+    def getMessages(self):
+        ret = []
+        empty = False
+        while not empty:
+            try:
+                msg = self.incoming.get_nowait()
+                ret.append(msg)
+            except Queue.Empty:
+                empty = True
+        return ret
+
+    def getNextMessage(self):
+        while True:
+            try:
+                msg = self.incoming.get_nowait()
+                return msg
+            except Queue.Empty:
+                time.sleep(0.01)
+
+
+
+
+def main():
+    # Run tests.
+    a = SocketMessager("a", "127.0.0.1", 25012, host=True)
+    b = SocketMessager("b", "127.0.0.1", 25012)
+    c = SocketMessager("c", "127.0.0.1", 25012)
+
+    b.sendMessage("test1", "c")
+    time.sleep(0.5)
+    print(c.getMessages())
+    
+    b.sendMessage("test2", "a")
+    time.sleep(0.5)
+    print(a.getMessages())
+
+    a.sendMessage("test3", "c")
+    time.sleep(0.5)
+    print(c.getMessages())
+
+    c.sendMessage("test4", "all")
+    time.sleep(0.5)
+    print(a.getMessages())
+    print(b.getMessages())
+    print(c.getMessages())
+    
+    c.sendMessage("test5", "a")
+    b.sendMessage("test6", "a")
+    c.sendMessage("test7", "a")
+    print(a.getNextMessage())
+    print(a.getNextMessage())
+    print(a.getNextMessage())
+
+
+
+
+
+
+
+
+
+if __name__ == '__main__':
+    main()
+

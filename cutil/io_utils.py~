@@ -1,0 +1,107 @@
+#!/usr/bin/env python
+
+#system imports
+import math
+import sys
+import numpy
+import threading
+import subprocess
+import os
+import shutil
+import subprocess
+import tempfile
+import time
+
+def getKeyboardLine():
+    return raw_input(">")
+    
+def getFloatValue(init_value):
+    try:
+        return float(getKeyboardLine())
+    except ValueError:
+        return init_value
+        
+class SingleLineUpdater:
+    def __init__(self, handle=None):
+        self.__lastLine = ""
+        self.__linecount = 0
+        self.__handle = handle
+    
+    def publish(self, line):
+        handle = self.__handle
+        if handle is None:
+            handle = sys.stdout
+        line = ("%7d:" % (self.__linecount)) + line
+        self.__linecount = self.__linecount + 1
+        handle.write(('\b' * len(self.__lastLine)) + (' ' * len(self.__lastLine)) + ('\b' * len(self.__lastLine)) + line)
+        handle.flush()
+        self.__lastLine = line
+        
+def findFile(name, defaultPath=""):
+    path = os.path.join(defaultPath, name)
+    if os.path.exists(path):
+        return path
+    
+    #pick somewhere to start the search. If the default path is a real place,
+    #start there, otherwise, start wherever this source file is.
+    if os.path.exists(defaultPath):
+        path = defaultPath
+    else:        
+        path = os.path.dirname(os.path.abspath(__file__))
+    
+    def find(_name, _path):
+        for root, dirs, files in os.walk(_path):
+            if _name in files or _name in dirs:
+                return os.path.join(root, _name)
+        return None
+    
+    ret = None
+    while ret is None:
+        ret = find(name, path)
+        if ret is None:
+            old_path = path
+            path = os.path.dirname(path) #go up a directory
+            #if we are at the root directory
+            if old_path == path:
+                return None
+    return ret
+    
+def write_file(filepath, lines):
+    fp = open(filepath, "w")
+    for line in lines:
+        fp.write(line)
+    fp.flush()
+    fp.close()
+    
+    
+# Credit to effbot.org/librarybook/code.htm for loading variables into current namespace
+def keyboard(banner=None):
+    import code, sys
+
+    # use exception trick to pick up the current frame
+    try:
+        raise None
+    except:
+        frame = sys.exc_info()[2].tb_frame.f_back
+
+    # evaluate commands in current namespace
+    namespace = frame.f_globals.copy()
+    namespace.update(frame.f_locals)
+
+    code.interact(banner=banner, local=namespace)
+    
+    
+def makedirs(dd):
+    if os.path.exists(dd) and not os.path.isfile(dd):
+        return
+    elif os.path.exists(dd) and os.path.isfile(dd):
+        raise ValueError("%s already exists and it is a file, not a directory." % dd)
+    elif os.path.dirname(dd) == dd:
+        raise ValueError("Cannot create file %s because it has no parent directory." % dd)
+    makedirs(os.path.dirname(dd))
+    os.mkdir(dd)
+    
+def file_basename(dd):
+    if dd.endswith('/'):
+        dd = dd[:-1]
+    return os.path.basename(dd)

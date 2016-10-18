@@ -1,0 +1,42 @@
+#!/usr/bin/env python
+
+import signal
+import subprocess
+import time
+
+class ProcessManager:
+    def __init__(self, command):
+        self.command = command
+        self.proc = subprocess.Popen(command)
+        
+    def pause(self):
+        self.proc.send_signal(signal.SIGTSTP)
+        
+    def resume(self):
+        self.proc.send_signal(signal.SIGCONT)
+        
+    def __del__(self):
+        self.proc.terminate()
+        time.sleep(0.1)
+        term_start = time.time()
+        while self.proc.poll():
+            time.sleep(0.01)
+            if time.time() - term_start > 5.0:
+                print("Killing '%s'." % str(self.command))
+                self.proc.kill()
+                break
+        
+        
+
+
+def __test():
+    proc = ProcessManager(['top'])
+    time.sleep(5.0)
+    proc.pause()
+    print("Paused")
+    time.sleep(5.0)
+    print("Resume")
+    proc.resume()
+  
+if __name__ == '__main__':
+    __test()

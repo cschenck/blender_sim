@@ -1,0 +1,360 @@
+#!/usr/bin/env python
+
+#system imports
+import math
+import sys
+import numpy
+import threading
+import subprocess
+import os
+import time
+
+#ros imports
+import roslib
+import rospy
+import tf
+from geometry_msgs.msg import (
+    PoseStamped,
+    Pose,
+    Point,
+    Quaternion,
+    QuaternionStamped,
+    PointStamped,
+)
+from std_msgs.msg import Header
+
+#rsdk imports
+import baxter_external_devices
+
+import pointclouds
+
+def make_closure(func, args1):
+    def ret(*args2):
+        args = list(args1) + list(args2)
+        func(*args)
+    return ret
+
+
+def get_time_ms():
+    return int(round(time.time() * 1000))
+
+#given a string list (lst), prompts the user to select one of the option in the list.
+def select_from_list(lst, allow_cancel=True):
+    if allow_cancel:
+        print("Select one (Esc to cancel)-")
+    else:
+        print("Select one-")
+    for i in range(len(lst)):
+        print("\t" + str(i) + ": " + str(lst[i]))
+        
+    while True:
+        c = baxter_external_devices.getch()
+        if c:
+            #catch Esc or ctrl-c
+            if c in ['\x1b', '\x03']:
+                if allow_cancel:
+                    return -1
+            elif c >= '0' and c <= '9':
+                print("Selected " + str(lst[int(c)]))
+                return int(c)
+        else:
+            rospy.sleep(0.001)
+                
+def getKeyboardLine():
+    return raw_input(">")
+    
+def getFloatValue(init_value):
+    try:
+        return float(getKeyboardLine())
+    except ValueError:
+        return init_value
+        
+def xyz_to_uv(pt, focal_length, resolution):
+    return (int(round(pt.x*focal_length/pt.z + resolution[0]/2)), int(round(pt.y*focal_length/pt.z + resolution[1]/2)))
+    
+def uvd_to_xyz(uvd, focal_length, resolution):
+    return Point(x=(uvd[0]-(resolution[0]/2.0))*uvd[2]/focal_length, y=(uvd[1]-(resolution[1]/2.0))*uvd[2]/focal_length, z=uvd[2])
+    
+def range_to_rgb_spectrogram(val, minVal=0.0, maxVal=1.0, rgb_max=1.0):
+    val = (val - float(minVal))/(float(maxVal) - float(minVal))*4.5
+    #Dark Blue (0,0,0.5) -> Light Blue (0,0,1.0) -> Cyan (0,1.0,1.0) -> Green (0,1.0,0) -> Yellow (1.0,1.0,0) -> Orange (1.0,0.5,0) -> Red (1.0,0,0)
+    #                 (0,0,+0.5)             (0,+1.0,0)           (0,0,-1.0)          (+1.0,0,0)            (0,-1.0,0)
+    if val <= 0.5: #dark blue -> light blue
+        ret = (0.0, 0.0, 0.5 + 0.5*val/0.5)
+    elif val <= 1.5: #light blue -> cyan
+        ret = (0.0, val-0.5, 1.0)
+    elif val <= 2.5: #cyan -> green
+        ret = (0.0, 1.0, 1.0 - (val - 1.5))
+    elif val <= 3.5: #green -> yellow
+        ret = ((val - 2.5), 1.0, 0.0)
+    elif val <= 4.5: #yellow -> red
+        ret = (1.0, 1.0 - (val - 3.5), 0.0)
+    return (ret[0]*rgb_max, ret[1]*rgb_max, ret[2]*rgb_max)
+        
+def listToPoint(l):
+    return Point(**dict(zip(['x', 'y', 'z'], l[0:3])))
+    
+def listToQuaternion(l):
+    return Quaternion(**dict(zip(['x', 'y', 'z', 'w'], l[0:4])))
+    
+def quaternionToList(q):
+    return (q.x, q.y, q.z, q.w)
+    
+def pointToList(p):
+    return [p.x, p.y, p.z]
+    
+def quaternionToEuler(orien):
+    return (math.atan2(2*orien.y*orien.w - 2*orien.x*orien.z, 1 - 2*orien.y*orien.y - 2*orien.z*orien.z),
+            math.asin(2*orien.x*orien.y + 2*orien.z*orien.w),
+            math.atan2(2*orien.x*orien.w - 2*orien.y*orien.z, 1 - 2*orien.x*orien.x - 2*orien.z*orien.z))
+
+def eulerToQuaternion(euler):
+    c1 = math.cos(euler[0]/2.0)
+    c2 = math.cos(euler[1]/2.0)
+    c3 = math.cos(euler[2]/2.0)
+    s1 = math.sin(euler[0]/2.0)
+    s2 = math.sin(euler[1]/2.0)
+    s3 = math.sin(euler[2]/2.0)
+    
+    return Quaternion(x=s1*s2*c3 + c1*c2*s3, y=s1*c2*c3 + c1*s2*s3, z=c1*s2*c3 - s1*c2*s3, w=c1*c2*c3 - s1*s2*s3)
+    
+#function taken from:
+#http://stackoverflow.com/questions/4870393/rotating-coordinate-system-via-a-quaternion
+def quaternionMult(q1, q2):
+    x1, y1, z1, w1 = q1
+    x2, y2, z2, w2 = q2
+    w = w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2
+    x = w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2
+    y = w1 * y2 + y1 * w2 + z1 * x2 - x1 * z2
+    z = w1 * z2 + z1 * w2 + x1 * y2 - y1 * x2
+    return [x, y, z, w]
+   
+#function taken from:
+#http://stackoverflow.com/questions/4870393/rotating-coordinate-system-via-a-quaternion
+def quaternionConjugate(q):
+    x, y, z, w = q
+    return [-x, -y, -z, w]
+    
+def pointByQuaternion(point, quaternion):
+    s = math.sqrt(quaternion.x**2 + quaternion.y**2 + quaternion.z**2 + quaternion.w**2)
+    if s == 0.0: #if the quaternion is 0
+        return point
+    q = [quaternion.x/s, quaternion.y/s, quaternion.z/s, quaternion.w/s]
+    v = [point.x, point.y, point.z, 0.0]
+    return listToPoint(quaternionMult(quaternionMult(q, v), quaternionConjugate(q)))
+    
+def rotate_and_translate_point(points, translation, rotation):
+    if not type(points) is list:
+        ret_list = False
+        points = [points]
+    else:
+        ret_list = True
+        
+    if type(rotation) is list or type(rotation) is tuple:
+        rotation = eulerToQuaternion(rotation)
+    elif type(rotation) is Quaternion:
+        pass
+    else:
+        raise Exception(type(rotation).__name__ + " is an unsupported rotation type.")
+
+    ret = [listToPoint((numpy.array(pointToList(pointByQuaternion(p, rotation))) + numpy.array(pointToList(translation))).tolist()) for p in points]
+    
+    if ret_list:
+        return ret
+    else:
+        return ret[0]
+    
+      
+transform_point_listener = None  
+def transform_point(point, from_frame, to_frame, verbose=False):
+    if from_frame == to_frame:
+        return point
+        
+    return_list = True
+    if not isinstance(point, list):
+        point = [point]
+        return_list = False
+
+    mat = numpy.zeros((len(point), 3))
+    for i in range(len(point)):
+        if isinstance(point[i], list) or isinstance(point[i], tuple):
+            mat[i,0] = point[i][0]
+            mat[i,1] = point[i][1]
+            mat[i,2] = point[i][2]
+        else:
+            mat[i,0] = point[i].x
+            mat[i,1] = point[i].y
+            mat[i,2] = point[i].z
+    
+    mat = transform_matrix(mat, from_frame, to_frame, verbose=verbose)
+    ret = []
+    for row in mat:
+        ret.append(Point(x=row[0], y=row[1], z=row[2]))
+    
+    if return_list:
+        return ret
+    else:
+        return ret[0]
+        
+def transform_matrix(mat, from_frame, to_frame, verbose=False):
+    if from_frame is to_frame:
+        return mat
+        
+    global transform_point_listener
+    if transform_point_listener is None:
+        transform_point_listener = tf.TransformListener()
+    rate = rospy.Rate(1.0)
+    
+    if verbose:
+        print("Looking up transform from " + from_frame + " to " + to_frame + " for " + str(mat.shape) + " matrix.") 
+    
+    while True:
+        try:
+            hdr = Header(stamp=rospy.Time(0), frame_id=from_frame)
+            mat44 = transform_point_listener.asMatrix(to_frame, hdr)
+        except(tf.LookupException):
+            if verbose:
+                print("lookup excpetion")
+            rate.sleep()
+            continue
+        except(tf.ExtrapolationException):
+            if verbose:
+                print("extrapolation excpetion")
+            rate.sleep()
+            continue
+        break
+    
+    a = numpy.empty((mat.shape[0], 1))
+    a.fill(1.0)
+    a = numpy.hstack((mat, a))
+    a = numpy.transpose(numpy.dot(mat44, numpy.transpose(a)))
+    return numpy.delete(a, -1, 1)
+        
+# cloud must be a numpy recordarray.
+def transform_cloud(cloud, from_frame, to_frame):
+        if from_frame == to_frame:
+            return cloud
+            
+        #filter out all x, y, or z's that are NaN
+        mask = numpy.isfinite(cloud['x']) & numpy.isfinite(cloud['y']) & numpy.isfinite(cloud['z'])
+        cloud = cloud[mask]
+        
+        cloud_array = pointclouds.get_xyz_points(cloud)
+        cloud_array = transform_matrix(cloud_array, from_frame, to_frame, verbose=False)
+        return pointclouds.xyz_to_cloud(cloud, cloud_array)
+    
+def transform_rotation(rotation, from_frame, to_frame):
+    if from_frame is to_frame:
+        return rotation
+        
+    global transform_point_listener
+    if transform_point_listener is None:
+        transform_point_listener = tf.TransformListener()
+    rate = rospy.Rate(1.0)
+    
+    return_list = True
+    if not isinstance(rotation, list):
+        rotation = [rotation]
+        return_list = False
+    
+    print("Looking up transform from " + from_frame + " to " + to_frame + " for " + str(len(rotation)) + " rotations.") 
+    
+    ret = []
+    for r in rotation:
+        while True:
+            try:
+                hdr = Header(stamp=rospy.Time(0), frame_id=from_frame)
+                msg = QuaternionStamped(header=hdr, quaternion=r)
+                retmsg = transform_point_listener.transformQuaternion(to_frame, msg)
+            except(tf.LookupException):
+                print("lookup excpetion")
+                rate.sleep()
+                continue
+            except(tf.ExtrapolationException):
+                print("extrapolation excpetion")
+                rate.sleep()
+                continue
+            break
+        ret.append(retmsg.quaternion)
+    if return_list:
+        return ret
+    else:
+        return ret[0]
+    
+
+def ros_topic_get(topic, msg_type, timeout=-1):
+    val = [None]
+    def callback(msg):
+        val[0] = msg
+    sub = rospy.Subscriber(topic, msg_type, callback)
+    
+    t = rospy.Time.now()
+    while (timeout <= 0 or (rospy.Time.now() - t).to_sec() <= timeout) and (val[0] is None):
+        rospy.sleep(0.01)
+    sub.unregister()
+    return val[0]
+    
+class RosListener():
+    def __init__(self, topic, msg_type):
+        self.sub = rospy.Subscriber(topic, msg_type, self.__callback)
+        self.msg = None
+        
+    def __callback(self, msg):
+        self.msg = msg
+        
+    def get(self, blocking=False):
+        while blocking and self.msg is None:
+            rospy.sleep(0.001)
+        return self.msg
+        
+    def stop(self):
+        self.sub.unregister()
+        self.sub = None
+        
+    def __del__(self):
+        if self.sub is not None:
+            self.stop()
+            
+    def reset(self):
+        self.msg = None
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        
+        
+        
+        
