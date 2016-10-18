@@ -193,7 +193,7 @@ def manage_jobs(hosts_file, jobs_manager_init):
     print("")
     jobs_manager = cutil.SocketMessager("jobs_manager", "127.0.0.1", port, host=True)
     cmds = []
-    new_host_str = "python %s --port %d --host %%s --host_manager %%s" % (os.path.abspath(__file__), port)
+    new_host_str = "PYTHONPATH=$PYTHONPATH:%s python %s --port %d --host %%s --host_manager %%s" % (cutil.file_dirnames(cutil.__path__[0])[-2], os.path.abspath(__file__), port)
     for host in hosts:
         cmds.append((new_host_str % (host[0], ' '.join(host[1]))) + "; bash")
     
@@ -296,7 +296,8 @@ def local_jobs(jobs_manager_init):
         job = jm_user.get()
         print("Starting job %s." % str(job))
         # Set up the command line args.
-        cmd = ["python", os.path.join(os.path.dirname(os.path.abspath(__file__)), "background_process_manager.py")]
+        cmd = ["PYTHONPATH=$PYTHONPATH:%s" % (cutil.file_dirnames(cutil.__path__[0])[-2],)]
+        cmd += ["python", os.path.join(os.path.dirname(os.path.abspath(__file__)), "background_process_manager.py")]
         cmd += ['--cmd', 'python', os.path.join(job['code_dir'], job['exec'])]
         if 'input_dir' in job:
             cmd += ['--input_dir', job['input_dir']]

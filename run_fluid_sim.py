@@ -2,7 +2,7 @@
 
 import argparse
 import cutil
-import dist_computing
+import dist_computing.run_jobs as dist_computing
 import os
 import Queue
 
@@ -15,9 +15,9 @@ def main():
     args, uk = parser.parse_known_args()
 
     if args.local:
-        dist_computing.local_jobs(os.path.abspath(__file__))
+        dist_computing.local_jobs(init)
     else:
-        dist_computing.manage_jobs(args.hosts_file, os.path.abspath(__file__))
+        dist_computing.manage_jobs(init)
         
 # The following shows how to setup the list of all simulations to run.
 # Each simulation needs a name and a list of the simulation arguments.
