@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import argparse
 import cutil
 import dist_computing.run_jobs as dist_computing
 import math
@@ -109,6 +110,8 @@ def init():
     print("Reading directory '%s' for finished renders. This may take a few minutes..." % OUTPUT_DATA_DIR)
     finished = {scene:set() for scene in SIMULATIONS}
     for scene in [x for x in os.listdir(INPUT_DATA_DIR) if x in SIMULATIONS]:
+        cutil.makedirs(os.path.join(OUTPUT_DATA_DIR, scene))
+    for scene in [x for x in os.listdir(INPUT_DATA_DIR) if x in SIMULATIONS]:
         for render in [x for x in os.listdir(os.path.join(OUTPUT_DATA_DIR, scene)) if x.startswith(RENDER_PREFIX)]:
             finished[scene].add(render)
     nfinished = reduce(lambda x,y : x+y, [len(ll) for ll in finished.values()])
@@ -117,6 +120,7 @@ def init():
 
     # Render all possible renders if its less than the MAX_NUM_RENDERS, otherwise sample.
     max_nrenders = min(MAX_NUM_RENDERS, len(all_possible)*len(SIMULATIONS))
+    to_queue = max_nrenders - nfinished
 
     def sample_thread():
         ss = set(all_possible)

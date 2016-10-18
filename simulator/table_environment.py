@@ -680,31 +680,31 @@ class TableEnvironment:
         fp.close()
         print("Done computing lip.")
 
-    def computeBoundingBoxesInImage(img, ii, ret_all, ret_visible):
-        CHANNEL_NAMES = ["r", "g", "b"]
-        ret_all[ii] = {}
-        ret_visible[ii] = {}
-        for ch in range(3):
-            idxs = np.where(img[...,ch] > 128)
-            if idxs[0].shape[0] > 0:
-                ret_all[ii][CHANNEL_NAMES[ch]] = ((idxs[0].min(), idxs[1].min()), (idxs[0].max(), idxs[1].max()))
-            else:
-                ret_all[ii][CHANNEL_NAMES[ch]] = ((-1, -1), (-1, -1))
+def computeBoundingBoxesInImage(img, ii, ret_all, ret_visible):
+    CHANNEL_NAMES = ["r", "g", "b"]
+    ret_all[ii] = {}
+    ret_visible[ii] = {}
+    for ch in range(3):
+        idxs = np.where(img[...,ch] > 128)
+        if idxs[0].shape[0] > 0:
+            ret_all[ii][CHANNEL_NAMES[ch]] = ((idxs[0].min(), idxs[1].min()), (idxs[0].max(), idxs[1].max()))
+        else:
+            ret_all[ii][CHANNEL_NAMES[ch]] = ((-1, -1), (-1, -1))
 
-        # Now restrict the image to just what is visible.
-        for ch in range(3):
-            idxs = np.where((img[...,-1] >= ch/3.0*255) & (img[...,-1] <= (ch+1)/3.0*255))
-            for ch2 in range(3):
-                if ch2 == ch:
-                    continue
-                img[idxs + (ch2*np.ones((idxs[0].shape[0],), dtype=int),)] = 0
+    # Now restrict the image to just what is visible.
+    for ch in range(3):
+        idxs = np.where((img[...,-1] >= ch/3.0*255) & (img[...,-1] <= (ch+1)/3.0*255))
+        for ch2 in range(3):
+            if ch2 == ch:
+                continue
+            img[idxs + (ch2*np.ones((idxs[0].shape[0],), dtype=int),)] = 0
 
-        for ch in range(3):
-            idxs = np.where(img[...,ch] > 128)
-            if idxs[0].shape[0] > 0:
-                ret_visible[ii][CHANNEL_NAMES[ch]] = ((idxs[0].min(), idxs[1].min()), (idxs[0].max(), idxs[1].max()))
-            else:
-                ret_visible[ii][CHANNEL_NAMES[ch]] = ((-1, -1), (-1, -1))
+    for ch in range(3):
+        idxs = np.where(img[...,ch] > 128)
+        if idxs[0].shape[0] > 0:
+            ret_visible[ii][CHANNEL_NAMES[ch]] = ((idxs[0].min(), idxs[1].min()), (idxs[0].max(), idxs[1].max()))
+        else:
+            ret_visible[ii][CHANNEL_NAMES[ch]] = ((-1, -1), (-1, -1))
 
             
 
