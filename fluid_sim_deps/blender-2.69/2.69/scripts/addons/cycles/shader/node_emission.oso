@@ -1,0 +1,31 @@
+OpenShadingLanguage 1.00
+# Compiled by oslc 1.3.2
+shader node_emission
+param	int	TotalPower	0 		 %read{0,0} %write{2147483647,-1}
+param	color	Color	0.80000001 0.80000001 0.80000001 		 %read{4,7} %write{2147483647,-1}
+param	float	Strength	1 		 %read{3,7} %write{2147483647,-1}
+oparam	closure color	Emission			 %read{2147483647,-1} %write{5,8}
+temp	closure color	$tmp1	 %read{5,5} %write{1,1}
+const	string	$const1	"emission"		 %read{1,6} %write{2147483647,-1}
+temp	float	$tmp2	 %read{3,3} %write{2,2}
+temp	float	$tmp3	 %read{4,4} %write{3,3}
+temp	color	$tmp4	 %read{5,5} %write{4,4}
+temp	closure color	$tmp5	 %read{8,8} %write{6,6}
+temp	color	$tmp6	 %read{8,8} %write{7,7}
+code ___main___
+# intern/cycles/kernel/shaders/node_emission.osl:25
+# 	if (TotalPower)
+	if		TotalPower 6 9 	%filename{"intern/cycles/kernel/shaders/node_emission.osl"} %line{25} %argrw{"r"}
+# intern/cycles/kernel/shaders/node_emission.osl:26
+# 		Emission = ((Strength / surfacearea()) * Color) * emission();
+	closure		$tmp1 $const1 	%line{26} %argrw{"wr"}
+	surfacearea	$tmp2 	%argrw{"w"}
+	div		$tmp3 Strength $tmp2 	%argrw{"wrr"}
+	mul		$tmp4 $tmp3 Color 	%argrw{"wrr"}
+	mul		Emission $tmp1 $tmp4 	%argrw{"wrr"}
+# intern/cycles/kernel/shaders/node_emission.osl:28
+# 		Emission = (Strength * Color) * emission();
+	closure		$tmp5 $const1 	%line{28} %argrw{"wr"}
+	mul		$tmp6 Strength Color 	%argrw{"wrr"}
+	mul		Emission $tmp5 $tmp6 	%argrw{"wrr"}
+	end

@@ -1,0 +1,111 @@
+OpenShadingLanguage 1.00
+# Compiled by oslc 1.3.2
+shader node_geometry
+param	normal	NormalIn	0 0 0 		 %read{2,2} %write{0,0}
+param	string	bump_offset	"center" 		 %read{8,14} %write{2147483647,-1}
+oparam	point	Position	0 0 0 		 %read{10,17} %write{1,17} %derivs
+oparam	normal	Normal	0 0 0 		 %read{25,27} %write{2,2}
+oparam	normal	Tangent	0 0 0 		 %read{2147483647,-1} %write{27,28}
+oparam	normal	TrueNormal	0 0 0 		 %read{2147483647,-1} %write{3,3}
+oparam	vector	Incoming	0 0 0 		 %read{2147483647,-1} %write{4,4}
+oparam	point	Parametric	0 0 0 		 %read{12,19} %write{5,19} %derivs
+oparam	float	Backfacing	0 		 %read{2147483647,-1} %write{7,7}
+global	point	P	 %read{1,1} %write{2147483647,-1} %derivs
+global	vector	I	 %read{4,4} %write{2147483647,-1}
+global	normal	N	 %read{0,0} %write{2147483647,-1}
+global	normal	Ng	 %read{3,3} %write{2147483647,-1}
+global	float	u	 %read{5,5} %write{2147483647,-1} %derivs
+global	float	v	 %read{5,5} %write{2147483647,-1} %derivs
+global	vector	dPdu	 %read{28,28} %write{2147483647,-1}
+local	point	generated	 %read{23,23} %write{20,20}
+local	matrix	___616_project	 %read{23,23} %write{22,22}
+local	vector	___616_T	 %read{25,25} %write{24,24}
+const	float	$const1	0		 %read{5,22} %write{2147483647,-1}
+temp	int	$tmp1	 %read{7,7} %write{6,6}
+const	string	$const2	"dx"		 %read{8,8} %write{2147483647,-1}
+temp	int	$tmp2	 %read{9,9} %write{8,8}
+temp	vector	$tmp3	 %read{11,11} %write{10,10} %derivs
+temp	vector	$tmp4	 %read{13,13} %write{12,12} %derivs
+const	string	$const3	"dy"		 %read{14,14} %write{2147483647,-1}
+temp	int	$tmp5	 %read{15,15} %write{14,14}
+temp	vector	$tmp6	 %read{17,17} %write{16,16} %derivs
+temp	vector	$tmp7	 %read{19,19} %write{18,18} %derivs
+temp	int	$tmp8	 %read{21,21} %write{20,20}
+const	string	$const4	"geom:generated"		 %read{20,20} %write{2147483647,-1}
+const	float	$const5	1		 %read{22,22} %write{2147483647,-1}
+const	float	$const6	-1		 %read{22,22} %write{2147483647,-1}
+const	float	$const7	0.5		 %read{22,22} %write{2147483647,-1}
+const	float	$const8	-0.5		 %read{22,22} %write{2147483647,-1}
+const	string	$const9	"object"		 %read{24,24} %write{2147483647,-1}
+const	string	$const10	"world"		 %read{24,24} %write{2147483647,-1}
+temp	point	$tmp9	 %read{24,24} %write{23,23}
+temp	vector	$tmp10	 %read{27,27} %write{26,26}
+temp	vector	$tmp11	 %read{26,26} %write{25,25}
+code NormalIn
+# intern/cycles/kernel/shaders/node_geometry.osl:20
+# 	normal NormalIn = N,
+	assign		NormalIn N 	%filename{"intern/cycles/kernel/shaders/node_geometry.osl"} %line{20} %argrw{"wr"}
+code ___main___
+# intern/cycles/kernel/shaders/node_geometry.osl:31
+# 	Position = P;
+	assign		Position P 	%filename{"intern/cycles/kernel/shaders/node_geometry.osl"} %line{31} %argrw{"wr"}
+# intern/cycles/kernel/shaders/node_geometry.osl:32
+# 	Normal = NormalIn;
+	assign		Normal NormalIn 	%line{32} %argrw{"wr"}
+# intern/cycles/kernel/shaders/node_geometry.osl:33
+# 	TrueNormal = Ng;
+	assign		TrueNormal Ng 	%line{33} %argrw{"wr"}
+# intern/cycles/kernel/shaders/node_geometry.osl:34
+# 	Incoming = I;
+	assign		Incoming I 	%line{34} %argrw{"wr"}
+# intern/cycles/kernel/shaders/node_geometry.osl:35
+# 	Parametric = point(u, v, 0.0);
+	point		Parametric u v $const1 	%line{35} %argrw{"wrrr"}
+# intern/cycles/kernel/shaders/node_geometry.osl:36
+# 	Backfacing = backfacing();
+	backfacing	$tmp1 	%line{36} %argrw{"w"}
+	assign		Backfacing $tmp1 	%argrw{"wr"}
+# intern/cycles/kernel/shaders/node_geometry.osl:38
+# 	if (bump_offset == "dx") {
+	eq		$tmp2 bump_offset $const2 	%line{38} %argrw{"wrr"}
+	if		$tmp2 14 20 	%argrw{"r"}
+# intern/cycles/kernel/shaders/node_geometry.osl:39
+# 		Position += Dx(Position);
+	Dx		$tmp3 Position 	%line{39} %argrw{"wr"} %argderivs{1}
+	add		Position Position $tmp3 	%argrw{"wrr"}
+# intern/cycles/kernel/shaders/node_geometry.osl:40
+# 		Parametric += Dx(Parametric);
+	Dx		$tmp4 Parametric 	%line{40} %argrw{"wr"} %argderivs{1}
+	add		Parametric Parametric $tmp4 	%argrw{"wrr"}
+# intern/cycles/kernel/shaders/node_geometry.osl:42
+# 	else if (bump_offset == "dy") {
+	eq		$tmp5 bump_offset $const3 	%line{42} %argrw{"wrr"}
+	if		$tmp5 20 20 	%argrw{"r"}
+# intern/cycles/kernel/shaders/node_geometry.osl:43
+# 		Position += Dy(Position);
+	Dy		$tmp6 Position 	%line{43} %argrw{"wr"} %argderivs{1}
+	add		Position Position $tmp6 	%argrw{"wrr"}
+# intern/cycles/kernel/shaders/node_geometry.osl:44
+# 		Parametric += Dy(Parametric);
+	Dy		$tmp7 Parametric 	%line{44} %argrw{"wr"} %argderivs{1}
+	add		Parametric Parametric $tmp7 	%argrw{"wrr"}
+# intern/cycles/kernel/shaders/node_geometry.osl:51
+# 	if (getattribute("geom:generated", generated)) {
+	getattribute	$tmp8 $const4 generated 	%line{51} %argrw{"wrw"}
+	if		$tmp8 28 29 	%argrw{"r"}
+# intern/cycles/kernel/shaders/node_geometry.osl:55
+# 		                        0.5, -0.5, 0.0, 1.0);
+	matrix		___616_project $const1 $const5 $const1 $const1 $const6 $const1 $const1 $const1 $const1 $const1 $const1 $const1 $const7 $const8 $const1 $const5 	%line{55} %argrw{"wrrrrrrrrrrrrrrrr"}
+# intern/cycles/kernel/shaders/node_geometry.osl:57
+# 		vector T = transform("object", "world", transform(project, generated));
+	transform	$tmp9 ___616_project generated 	%line{57} %argrw{"wrr"}
+	transform	___616_T $const9 $const10 $tmp9 	%argrw{"wrrr"}
+# intern/cycles/kernel/shaders/node_geometry.osl:58
+# 		Tangent = cross(Normal, normalize(cross(T, Normal)));
+	cross		$tmp11 ___616_T Normal 	%line{58} %argrw{"wrr"}
+	normalize	$tmp10 $tmp11 	%argrw{"wr"}
+	cross		Tangent Normal $tmp10 	%argrw{"wrr"}
+# intern/cycles/kernel/shaders/node_geometry.osl:62
+# 		Tangent = normalize(dPdu);
+	normalize	Tangent dPdu 	%line{62} %argrw{"wr"}
+	end

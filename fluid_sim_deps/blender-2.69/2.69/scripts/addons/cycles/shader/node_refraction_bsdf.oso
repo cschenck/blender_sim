@@ -1,0 +1,68 @@
+OpenShadingLanguage 1.00
+# Compiled by oslc 1.3.2
+shader node_refraction_bsdf
+param	color	Color	0.80000001 0.80000001 0.80000001 		 %read{10,18} %write{2147483647,-1}
+param	string	distribution	"Sharp" 		 %read{7,15} %write{2147483647,-1}
+param	float	Roughness	0.2 		 %read{13,17} %write{2147483647,-1}
+param	float	IOR	1.45 		 %read{2,2} %write{2147483647,-1}
+param	normal	Normal	0 0 0 		 %read{9,17} %write{0,0}
+oparam	closure color	BSDF			 %read{2147483647,-1} %write{10,18}
+global	normal	N	 %read{0,0} %write{2147483647,-1}
+local	float	f	 %read{5,6} %write{2,2}
+local	float	eta	 %read{9,17} %write{5,6}
+const	float	$const1	1		 %read{1,5} %write{2147483647,-1}
+const	float	$const2	9.9999997e-06		 %read{1,1} %write{2147483647,-1}
+temp	float	$tmp1	 %read{2,2} %write{1,1}
+temp	int	$tmp2	 %read{4,4} %write{3,3}
+const	string	$const3	"Sharp"		 %read{7,7} %write{2147483647,-1}
+temp	int	$tmp3	 %read{8,8} %write{7,7}
+temp	closure color	$tmp4	 %read{10,10} %write{9,9}
+const	string	$const4	"refraction"		 %read{9,9} %write{2147483647,-1}
+const	string	$const5	"Beckmann"		 %read{11,11} %write{2147483647,-1}
+temp	int	$tmp5	 %read{12,12} %write{11,11}
+temp	closure color	$tmp6	 %read{14,14} %write{13,13}
+const	string	$const6	"microfacet_beckmann_refraction"		 %read{13,13} %write{2147483647,-1}
+const	string	$const7	"GGX"		 %read{15,15} %write{2147483647,-1}
+temp	int	$tmp7	 %read{16,16} %write{15,15}
+temp	closure color	$tmp8	 %read{18,18} %write{17,17}
+const	string	$const8	"microfacet_ggx_refraction"		 %read{17,17} %write{2147483647,-1}
+code Normal
+# intern/cycles/kernel/shaders/node_refraction_bsdf.osl:24
+# 	normal Normal = N,
+	assign		Normal N 	%filename{"intern/cycles/kernel/shaders/node_refraction_bsdf.osl"} %line{24} %argrw{"wr"}
+code ___main___
+# intern/cycles/kernel/shaders/node_refraction_bsdf.osl:27
+# 	float f = max(IOR, 1.0 + 1e-5);
+	add		$tmp1 $const1 $const2 	%filename{"intern/cycles/kernel/shaders/node_refraction_bsdf.osl"} %line{27} %argrw{"wrr"}
+	max		f IOR $tmp1 	%argrw{"wrr"}
+# intern/cycles/kernel/shaders/node_refraction_bsdf.osl:28
+# 	float eta = backfacing() ? 1.0 / f: f;
+	backfacing	$tmp2 	%line{28} %argrw{"w"}
+	if		$tmp2 6 7 	%argrw{"r"}
+	div		eta $const1 f 	%argrw{"wrr"}
+	assign		eta f 	%argrw{"wr"}
+# intern/cycles/kernel/shaders/node_refraction_bsdf.osl:30
+# 	if (distribution == "Sharp")
+	eq		$tmp3 distribution $const3 	%line{30} %argrw{"wrr"}
+	if		$tmp3 11 19 	%argrw{"r"}
+# intern/cycles/kernel/shaders/node_refraction_bsdf.osl:31
+# 		BSDF = Color * refraction(Normal, eta);
+	closure		$tmp4 $const4 Normal eta 	%line{31} %argrw{"wrrr"}
+	mul		BSDF $tmp4 Color 	%argrw{"wrr"}
+# intern/cycles/kernel/shaders/node_refraction_bsdf.osl:32
+# 	else if (distribution == "Beckmann")
+	eq		$tmp5 distribution $const5 	%line{32} %argrw{"wrr"}
+	if		$tmp5 15 19 	%argrw{"r"}
+# intern/cycles/kernel/shaders/node_refraction_bsdf.osl:33
+# 		BSDF = Color * microfacet_beckmann_refraction(Normal, Roughness, eta);
+	closure		$tmp6 $const6 Normal Roughness eta 	%line{33} %argrw{"wrrrr"}
+	mul		BSDF $tmp6 Color 	%argrw{"wrr"}
+# intern/cycles/kernel/shaders/node_refraction_bsdf.osl:34
+# 	else if (distribution == "GGX")
+	eq		$tmp7 distribution $const7 	%line{34} %argrw{"wrr"}
+	if		$tmp7 19 19 	%argrw{"r"}
+# intern/cycles/kernel/shaders/node_refraction_bsdf.osl:35
+# 		BSDF = Color * microfacet_ggx_refraction(Normal, Roughness, eta);
+	closure		$tmp8 $const8 Normal Roughness eta 	%line{35} %argrw{"wrrrr"}
+	mul		BSDF $tmp8 Color 	%argrw{"wrr"}
+	end

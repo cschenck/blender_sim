@@ -1,0 +1,5 @@
+To run this package, you must have the following dependencies installed:
+
+terminator (sudo apt-get install terminator)
+
+fabric (Python library for ssh'ing, install via either 'sudo apt-get install fabric' or 'pip install fabric')

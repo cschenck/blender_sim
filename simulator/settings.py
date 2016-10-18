@@ -1,0 +1,6 @@
+#!/usr/bin/env python
+
+TCP_IP = '127.0.0.1'
+TCP_PORT = 5005
+BUFFER_SIZE = 1024
+CMD_RESPONSE_TIMEOUT = 2.0

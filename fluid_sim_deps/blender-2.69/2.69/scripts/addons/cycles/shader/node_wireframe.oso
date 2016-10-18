@@ -1,0 +1,197 @@
+OpenShadingLanguage 1.00
+# Compiled by oslc 1.3.2
+shader node_wireframe
+param	int	use_pixel_size	0 		 %read{33,33} %write{2147483647,-1}
+param	float	Size	0.0099999998 		 %read{48,48} %write{2147483647,-1}
+oparam	float	Fac	0 		 %read{2147483647,-1} %write{3,72}
+global	point	P	 %read{34,58} %write{2147483647,-1} %derivs
+global	vector	I	 %read{36,43} %write{2147483647,-1}
+local	int	___614_np	 %read{23,56} %write{5,22}
+local	point[64]	___614_p	 %read{57,60} %write{10,26}
+local	float	___614_pixelWidth	 %read{49,65} %write{6,50}
+local	float	___617_pixelWidthX	 %read{46,46} %write{39,39}
+local	float	___617_pixelWidthY	 %read{46,46} %write{45,45}
+local	int	___618_i	 %read{51,71} %write{51,71}
+local	int	___619_i2	 %read{51,71} %write{51,71}
+local	vector	___619_dir	 %read{51,71} %write{51,71}
+local	vector	___619_edge	 %read{51,71} %write{51,71}
+local	vector	___619_crs	 %read{51,71} %write{51,71}
+const	string	$const1	"triangles"		 %read{7,18} %write{2147483647,-1}
+const	string	$const2	"wireframe"		 %read{0,0} %write{2147483647,-1}
+temp	int	$tmp1	 %read{2,2} %write{1,1}
+const	string	$const3	"path:diffuse"		 %read{1,1} %write{2147483647,-1}
+const	float	$const4	0		 %read{3,31} %write{2147483647,-1}
+const	int	$const5	0		 %read{5,72} %write{2147483647,-1}
+const	int	$const6	1		 %read{6,71} %write{2147483647,-1}
+temp	int	$tmp2	 %read{8,8} %write{7,7}
+const	int	$const7	3		 %read{9,23} %write{2147483647,-1}
+temp	int	$tmp3	 %read{11,11} %write{10,10}
+const	string	$const8	"geom:trianglevertices"		 %read{10,10} %write{2147483647,-1}
+temp	int	$tmp4	 %read{12,12} %write{11,11}
+const	string	$const9	"polygons"		 %read{15,15} %write{2147483647,-1}
+temp	int	$tmp5	 %read{16,16} %write{15,15}
+temp	int	$tmp6	 %read{17,21} %write{16,20}
+const	string	$const10	"patches"		 %read{18,18} %write{2147483647,-1}
+temp	int	$tmp7	 %read{19,19} %write{18,18}
+temp	int	$tmp8	 %read{20,20} %write{19,19}
+temp	int	$tmp9	 %read{2147483647,-1} %write{22,22}
+const	string	$const11	"geom:numpolyvertices"		 %read{22,22} %write{2147483647,-1}
+temp	int	$tmp10	 %read{24,24} %write{23,23}
+temp	int	$tmp11	 %read{25,30} %write{24,29}
+temp	int	$tmp12	 %read{27,27} %write{26,26}
+const	string	$const12	"geom:polyvertices"		 %read{26,26} %write{2147483647,-1}
+temp	int	$tmp13	 %read{28,28} %write{27,27}
+temp	int	$tmp14	 %read{29,29} %write{28,28}
+temp	vector	$tmp15	 %read{38,38} %write{34,34}
+temp	float	$tmp16	 %read{37,37} %write{36,36}
+temp	vector	$tmp17	 %read{36,36} %write{35,35}
+temp	vector	$tmp18	 %read{38,38} %write{37,37}
+temp	vector	$tmp19	 %read{39,39} %write{38,38}
+temp	vector	$tmp20	 %read{44,44} %write{40,40}
+temp	float	$tmp21	 %read{43,43} %write{42,42}
+temp	vector	$tmp22	 %read{42,42} %write{41,41}
+temp	vector	$tmp23	 %read{44,44} %write{43,43}
+temp	vector	$tmp24	 %read{45,45} %write{44,44}
+temp	float	$tmp25	 %read{47,47} %write{46,46}
+const	float	$const14	2		 %read{47,47} %write{2147483647,-1}
+const	float	$const15	0.5		 %read{48,48} %write{2147483647,-1}
+temp	float	$tmp26	 %read{49,49} %write{48,48}
+temp	int	$tmp27	 %read{51,71} %write{51,71}
+temp	point	$tmp28	 %read{58,58} %write{57,57}
+temp	point	$tmp29	 %read{61,61} %write{59,59}
+temp	point	$tmp30	 %read{61,61} %write{60,60}
+temp	float	$tmp31	 %read{66,66} %write{63,63}
+temp	float	$tmp32	 %read{65,65} %write{64,64}
+temp	float	$tmp33	 %read{66,66} %write{65,65}
+temp	int	$tmp34	 %read{67,67} %write{66,66}
+temp	int	$tmp35	 %read{2147483647,-1} %write{70,70}
+code ___main___
+# intern/cycles/kernel/shaders/node_wireframe.osl:25
+# 	Fac = wireframe("triangles", Size, use_pixel_size);
+	functioncall	$const2 74 	%filename{"intern/cycles/kernel/shaders/node_wireframe.osl"} %line{25} %argrw{"r"}
+# intern/cycles/kernel/shaders/oslutil.h:46
+#  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+	raytype		$tmp1 $const3 	%filename{"intern/cycles/kernel/shaders/oslutil.h"} %line{46} %argrw{"wr"}
+	if		$tmp1 5 5 	%argrw{"r"}
+	assign		Fac $const4 	%argrw{"wr"}
+	return
+# intern/cycles/kernel/shaders/oslutil.h:48
+#  * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+	assign		___614_np $const5 	%line{48} %argrw{"wr"}
+# intern/cycles/kernel/shaders/oslutil.h:50
+#  * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+	assign		___614_pixelWidth $const6 	%line{50} %argrw{"wr"}
+# intern/cycles/kernel/shaders/oslutil.h:52
+#  * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+	eq		$tmp2 $const1 $const1 	%line{52} %argrw{"wrr"}
+	if		$tmp2 15 33 	%argrw{"r"}
+# intern/cycles/kernel/shaders/oslutil.h:54
+#  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+	assign		___614_np $const7 	%line{54} %argrw{"wr"}
+# intern/cycles/kernel/shaders/oslutil.h:55
+#  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+	getattribute	$tmp3 $const8 ___614_p 	%line{55} %argrw{"wrw"}
+	eq		$tmp4 $tmp3 $const5 	%argrw{"wrr"}
+	if		$tmp4 15 15 	%argrw{"r"}
+# intern/cycles/kernel/shaders/oslutil.h:56
+#  */
+	assign		Fac $const4 	%line{56} %argrw{"wr"}
+	return
+# intern/cycles/kernel/shaders/oslutil.h:58
+# #ifndef CCL_OSLUTIL_H
+	eq		$tmp5 $const1 $const9 	%line{58} %argrw{"wrr"}
+	neq		$tmp6 $tmp5 $const5 	%argrw{"wrr"}
+	if		$tmp6 18 21 	%argrw{"r"}
+	eq		$tmp7 $const1 $const10 	%argrw{"wrr"}
+	neq		$tmp8 $tmp7 $const5 	%argrw{"wrr"}
+	assign		$tmp6 $tmp8 	%argrw{"wr"}
+	if		$tmp6 33 33 	%argrw{"r"}
+# intern/cycles/kernel/shaders/oslutil.h:60
+# 
+	getattribute	$tmp9 $const11 ___614_np 	%line{60} %argrw{"wrw"}
+# intern/cycles/kernel/shaders/oslutil.h:61
+# /* NB: must match the value in kernel_types.h */
+	lt		$tmp10 ___614_np $const7 	%line{61} %argrw{"wrr"}
+	neq		$tmp11 $tmp10 $const5 	%argrw{"wrr"}
+	if		$tmp11 26 30 	%argrw{"r"}
+	getattribute	$tmp12 $const12 ___614_p 	%argrw{"wrw"}
+	eq		$tmp13 $tmp12 $const5 	%argrw{"wrr"}
+	neq		$tmp14 $tmp13 $const5 	%argrw{"wrr"}
+	assign		$tmp11 $tmp14 	%argrw{"wr"}
+	if		$tmp11 33 33 	%argrw{"r"}
+# intern/cycles/kernel/shaders/oslutil.h:62
+# #define RAMP_TABLE_SIZE 256
+	assign		Fac $const4 	%line{62} %argrw{"wr"}
+	return
+# intern/cycles/kernel/shaders/oslutil.h:65
+# // ("triangles", "polygons" or "patches"), and a line_width in raster
+	if		use_pixel_size 48 48 	%line{65} %argrw{"r"}
+# intern/cycles/kernel/shaders/oslutil.h:69
+# {
+	Dx		$tmp15 P 	%line{69} %argrw{"wr"} %argderivs{1}
+	Dx		$tmp17 P 	%argrw{"wr"} %argderivs{1}
+	dot		$tmp16 $tmp17 I 	%argrw{"wrr"}
+	mul		$tmp18 $tmp16 I 	%argrw{"wrr"}
+	sub		$tmp19 $tmp15 $tmp18 	%argrw{"wrr"}
+	length		___617_pixelWidthX $tmp19 	%argrw{"wr"}
+# intern/cycles/kernel/shaders/oslutil.h:70
+#    // ray differentials are so big in diffuse context that this function would always return "wire"
+	Dy		$tmp20 P 	%line{70} %argrw{"wr"} %argderivs{1}
+	Dy		$tmp22 P 	%argrw{"wr"} %argderivs{1}
+	dot		$tmp21 $tmp22 I 	%argrw{"wrr"}
+	mul		$tmp23 $tmp21 I 	%argrw{"wrr"}
+	sub		$tmp24 $tmp20 $tmp23 	%argrw{"wrr"}
+	length		___617_pixelWidthY $tmp24 	%argrw{"wr"}
+# intern/cycles/kernel/shaders/oslutil.h:72
+# 
+	add		$tmp25 ___617_pixelWidthX ___617_pixelWidthY 	%line{72} %argrw{"wrr"}
+	div		___614_pixelWidth $tmp25 $const14 	%argrw{"wrr"}
+# intern/cycles/kernel/shaders/oslutil.h:77
+#    if (edge_type == "triangles")
+	mul		$tmp26 $const15 Size 	%line{77} %argrw{"wrr"}
+	mul		___614_pixelWidth ___614_pixelWidth $tmp26 	%argrw{"wrr"}
+# intern/cycles/kernel/shaders/oslutil.h:78
+#    {
+	mul		___614_pixelWidth ___614_pixelWidth ___614_pixelWidth 	%line{78} %argrw{"wrr"}
+# intern/cycles/kernel/shaders/oslutil.h:79
+#       np = 3;
+	for		$tmp27 53 54 70 72 	%line{79} %argrw{"r"}
+	assign		___618_i $const5 	%argrw{"wr"}
+	lt		$tmp27 ___618_i ___614_np 	%argrw{"wrr"}
+# intern/cycles/kernel/shaders/oslutil.h:81
+#          return 0.0;
+	if		___618_i 56 57 	%line{81} %argrw{"r"}
+	sub		___619_i2 ___618_i $const6 	%argrw{"wrr"}
+	sub		___619_i2 ___614_np $const6 	%argrw{"wrr"}
+# intern/cycles/kernel/shaders/oslutil.h:82
+#    }
+	aref		$tmp28 ___614_p ___618_i 	%line{82} %argrw{"wrr"}
+	sub		___619_dir P $tmp28 	%argrw{"wrr"}
+# intern/cycles/kernel/shaders/oslutil.h:83
+#    else if (edge_type == "polygons" || edge_type == "patches")
+	aref		$tmp29 ___614_p ___618_i 	%line{83} %argrw{"wrr"}
+	aref		$tmp30 ___614_p ___619_i2 	%argrw{"wrr"}
+	sub		___619_edge $tmp29 $tmp30 	%argrw{"wrr"}
+# intern/cycles/kernel/shaders/oslutil.h:84
+#    {
+	cross		___619_crs ___619_edge ___619_dir 	%line{84} %argrw{"wrr"}
+# intern/cycles/kernel/shaders/oslutil.h:88
+#    }
+	dot		$tmp31 ___619_crs ___619_crs 	%line{88} %argrw{"wrr"}
+	dot		$tmp32 ___619_edge ___619_edge 	%argrw{"wrr"}
+	mul		$tmp33 $tmp32 ___614_pixelWidth 	%argrw{"wrr"}
+	lt		$tmp34 $tmp31 $tmp33 	%argrw{"wrr"}
+	if		$tmp34 70 70 	%argrw{"r"}
+# intern/cycles/kernel/shaders/oslutil.h:89
+# 
+	assign		Fac $const6 	%line{89} %argrw{"wr"}
+	return
+# intern/cycles/kernel/shaders/oslutil.h:79
+#    for (int i = 0; i < np; i++)
+	assign		$tmp35 ___618_i 	%line{79} %argrw{"wr"}
+	add		___618_i ___618_i $const6 	%argrw{"wrr"}
+# intern/cycles/kernel/shaders/oslutil.h:91
+#    return 0;
+	assign		Fac $const5 	%line{91} %argrw{"wr"}
+	return
+	end
